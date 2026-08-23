@@ -1,9 +1,22 @@
 // StoryFlow AI — Netlify Function: story analysis, character bible & dynamic scene planning.
 // Uses Google Gemini. API key is read from Netlify env (GOOGLE_AI_API_KEY) and never exposed to the frontend.
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-3.6-flash";
 
-function safeJson(text) {
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type"
+};
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS }
+  });
+}
+
+function safeJsonParse(text) {
   if (!text) return null;
   try {
     return JSON.parse(text);
@@ -69,16 +82,19 @@ Return ONLY a JSON object with this exact shape:
 }
 
 export default async (request, context) => {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
   try {
     const body = await request.json();
     const story = body?.story;
     if (!story || typeof story !== "string" || story.trim().length < 10) {
-      return Response.json({ error: "A valid story is required" }, { status: 400 });
+      return json({ error: "A valid story is required" }, 400);
     }
 
     const apiKey = process.env.GOOGLE_AI_API_KEY;
     if (!apiKey) {
-      return Response.json({ error: "GOOGLE_AI_API_KEY is not set in Netlify environment" }, { status: 500 });
+      return json({ error: "GOOGLE_AI_API_KEY is not set in Netlify environment" }, 500);
     }
 
     const resp = await fetch(
@@ -88,28 +104,25 @@ export default async (request, context) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: buildPrompt(story) }] }],
-          generationConfig: {
-            responseMimeType: "application/json",
-            temperature: 0.7
-          }
+          generationConfig: { responseMimeType: "application/json", temperature: 0.7 }
         })
       }
     );
 
     if (!resp.ok) {
       const errText = await resp.text();
-      return Response.json({ error: `Gemini error ${resp.status}: ${errText}` }, { status: 502 });
+      return json({ error: `Gemini error ${resp.status}: ${errText}` }, 502);
     }
 
     const data = await resp.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const analysis = safeJson(text);
+    const analysis = safeJsonParse(text);
     if (!analysis || !Array.isArray(analysis.scenes)) {
-      return Response.json({ error: "Could not parse story analysis from Gemini" }, { status: 502 });
+      return json({ error: "Could not parse story analysis from Gemini" }, 502);
     }
 
-    return Response.json({ analysis });
+    return json({ analysis });
   } catch (error) {
-    return Response.json({ error: error?.message || "Analysis failed" }, { status: 500 });
+    return json({ error: error?.message || "Analysis failed" }, 500);
   }
 };
