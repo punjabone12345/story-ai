@@ -1,7 +1,20 @@
 // StoryFlow AI — Netlify Function: image verification via Gemini vision.
 // Key from Netlify env (GOOGLE_AI_API_KEY).
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-3.6-flash";
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type"
+};
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS }
+  });
+}
 
 function bufToBase64(buf) {
   const bytes = new Uint8Array(buf);
@@ -13,7 +26,7 @@ function bufToBase64(buf) {
   return btoa(binary);
 }
 
-function safeJson(text) {
+function safeJsonParse(text) {
   if (!text) return null;
   try {
     return JSON.parse(text);
@@ -28,6 +41,9 @@ function safeJson(text) {
 }
 
 export default async (request, context) => {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
   try {
     const body = await request.json();
     const image_url = body?.image_url;
@@ -36,18 +52,17 @@ export default async (request, context) => {
     const continuity_notes = body?.continuity_notes;
 
     if (!image_url || !scene_description) {
-      return Response.json({ error: "image_url and scene_description are required" }, { status: 400 });
+      return json({ error: "image_url and scene_description are required" }, 400);
     }
 
     const apiKey = process.env.GOOGLE_AI_API_KEY;
     if (!apiKey) {
-      return Response.json({ error: "GOOGLE_AI_API_KEY is not set in Netlify environment" }, { status: 500 });
+      return json({ error: "GOOGLE_AI_API_KEY is not set in Netlify environment" }, 500);
     }
 
-    // Fetch the generated image and send to Gemini vision as inlineData.
     const imgResp = await fetch(image_url);
     if (!imgResp.ok) {
-      return Response.json({ error: `Could not fetch image for verification (${imgResp.status})` }, { status: 502 });
+      return json({ error: `Could not fetch image for verification (${imgResp.status})` }, 502);
     }
     const imgBuf = await imgResp.arrayBuffer();
     const b64 = bufToBase64(imgBuf);
@@ -88,18 +103,18 @@ approved must be true ONLY if the image is an acceptable match with no significa
 
     if (!resp.ok) {
       const errText = await resp.text();
-      return Response.json({ error: `Gemini vision error ${resp.status}: ${errText}` }, { status: 502 });
+      return json({ error: `Gemini vision error ${resp.status}: ${errText}` }, 502);
     }
 
     const data = await resp.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const result = safeJson(text) || {};
-    return Response.json({
+    const result = safeJsonParse(text) || {};
+    return json({
       approved: !!result.approved,
       score: typeof result.score === "number" ? result.score : (result.approved ? 100 : 0),
       issues: result.issues || (result.approved ? "None" : "Mismatch")
     });
   } catch (error) {
-    return Response.json({ error: error?.message || "Verification failed" }, { status: 500 });
+    return json({ error: error?.message || "Verification failed" }, 500);
   }
 };
