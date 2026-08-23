@@ -1,9 +1,9 @@
 [build]
-  publish = "dist"
+  command = "echo 'functions only'"
+  publish = "public"
 
 [functions]
-  directory = "netlify/functions"
-  node_bundler = "esbuild"
+  directory = "functions"
 
 [build.environment]
   NODE_VERSION = "20"
