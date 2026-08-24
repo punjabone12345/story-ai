@@ -9,11 +9,10 @@
 
 [functions]
   directory = "src/netlify/functions"
-  # Story analysis (fal LLM, large JSON) can take ~20-30s. Netlify's default is
-  # 10s, which causes "invalid status code returned from lambda: 0". Requires a
-  # Netlify plan that allows >10s (Pro = 26s). Capped by your plan regardless of
-  # this value.
-  timeout = 60
+  # Function timeout uses Netlify's plan default (10s free / 26s Pro). The scalar
+  # "timeout" key is no longer valid in current netlify.toml schema, so it is
+  # omitted here. If analysis times out, upgrade the Netlify plan for a higher
+  # default timeout.
 
 [build.environment]
   NODE_VERSION = "20"
