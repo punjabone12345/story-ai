@@ -1,7 +1,6 @@
 // StoryFlow AI — Netlify Function: story analysis, character bible & dynamic scene planning.
-// Uses Google Gemini. API key is read from Netlify env (GOOGLE_AI_API_KEY) and never exposed to the frontend.
-
-const GEMINI_MODEL = "gemini-3.6-flash";
+// Uses fal.ai OpenRouter LLM (google/gemini-2.5-flash). FAL_KEY from Netlify env,
+// NEVER returned to the client. No Base44 integration credits.
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -18,15 +17,9 @@ function json(data, status = 200) {
 
 function safeJsonParse(text) {
   if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {}
+  try { return JSON.parse(text); } catch {}
   const match = text.match(/\{[\s\S]*\}/);
-  if (match) {
-    try {
-      return JSON.parse(match[0]);
-    } catch {}
-  }
+  if (match) { try { return JSON.parse(match[0]); } catch {} }
   return null;
 }
 
@@ -47,10 +40,10 @@ For EVERY recurring character, define LOCKED visual attributes specific enough t
 STEP 3 — DYNAMIC SCENE BREAKDOWN
 Divide the story into chronological scenes. Do NOT use a fixed number of scenes. Determine the count automatically from the story length, narration timing and visual events:
 - Target roughly 5-8 seconds of spoken Hindi narration per scene.
-- For a story that would take about 60 seconds to narrate, use around 8-12 scenes.
-- For longer stories, increase the number proportionally. For shorter stories, reduce it appropriately.
+- For a story that would take about 60 seconds to narrate, you MUST produce AT LEAST 8 scenes (target 8-12). Never produce fewer than 8 for a 60-second story.
+- For longer stories, increase the number proportionally. For shorter stories, reduce it appropriately but never below 6.
 - Create a new scene at every meaningful: action/change, location change, character interaction, emotional beat, visual event, or time/environment change.
-- Do NOT split unnaturally just to reach a number.
+- Do NOT split unnaturally just to reach a number, but DO ensure enough scenes to cover the full story visually.
 - Every important part of the original story MUST be represented visually.
 
 Each scene must include:
@@ -92,36 +85,42 @@ export default async (request, context) => {
       return json({ error: "A valid story is required" }, 400);
     }
 
-    const apiKey = process.env.GOOGLE_AI_API_KEY;
-    if (!apiKey) {
-      return json({ error: "GOOGLE_AI_API_KEY is not set in Netlify environment" }, 500);
-    }
+    const falKey = process.env.FAL_KEY;
+    if (!falKey) return json({ error: "FAL_KEY is not set in Netlify environment" }, 500);
 
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: buildPrompt(story) }] }],
-          generationConfig: { responseMimeType: "application/json", temperature: 0.7 }
-        })
+    const prompt = buildPrompt(story);
+    let lastErr = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const resp = await fetch("https://fal.run/openrouter/router/openai/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Key ${falKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [{ role: "user", content: prompt }],
+            response_format: { type: "json_object" },
+            temperature: 0.7,
+            max_tokens: 8192
+          })
+        });
+        if (!resp.ok) {
+          lastErr = `fal llm ${resp.status}: ${(await resp.text()).slice(0, 300)}`;
+          await new Promise((r) => setTimeout(r, 2500));
+          continue;
+        }
+        const data = await resp.json();
+        const text = data?.choices?.[0]?.message?.content || "";
+        const analysis = safeJsonParse(text);
+        if (analysis && Array.isArray(analysis.scenes) && analysis.scenes.length > 0) {
+          return json({ analysis });
+        }
+        lastErr = "Could not parse story analysis";
+      } catch (e) {
+        lastErr = e.message;
+        await new Promise((r) => setTimeout(r, 2500));
       }
-    );
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      return json({ error: `Gemini error ${resp.status}: ${errText}` }, 502);
     }
-
-    const data = await resp.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const analysis = safeJsonParse(text);
-    if (!analysis || !Array.isArray(analysis.scenes)) {
-      return json({ error: "Could not parse story analysis from Gemini" }, 502);
-    }
-
-    return json({ analysis });
+    return json({ error: `Analysis failed: ${lastErr}` }, 502);
   } catch (error) {
     return json({ error: error?.message || "Analysis failed" }, 500);
   }
