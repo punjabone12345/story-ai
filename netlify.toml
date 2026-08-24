@@ -1,9 +1,28 @@
+# StoryFlow AI — Netlify Functions gateway (functions-only deployment).
+# The Base44 app hosts the frontend + database; Netlify hosts the secure API
+# functions only (fal.ai). FAL_KEY is set in Netlify environment variables ONLY
+# and never appears in the frontend, database, or client responses.
+
 [build]
-  command = "echo 'functions only'"
-  publish = "public"
+  command = "echo 'StoryFlow AI functions-only deployment'"
+  publish = "src/netlify/public"
 
 [functions]
-  directory = "functions"
+  directory = "src/netlify/functions"
+  # Story analysis (fal LLM, large JSON) can take ~20-30s. Netlify's default is
+  # 10s, which causes "invalid status code returned from lambda: 0". Requires a
+  # Netlify plan that allows >10s (Pro = 26s). Capped by your plan regardless of
+  # this value.
+  timeout = 60
 
 [build.environment]
   NODE_VERSION = "20"
+
+# Guarantee CORS on every function response (browser would otherwise block
+# cross-origin calls with "Failed to fetch"). Functions also set these headers.
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type"
