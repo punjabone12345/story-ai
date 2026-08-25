@@ -1,4 +1,4 @@
-// StoryFlow AI — Netlify Function: submit a minimax/h3 image-to-video job to the
+// StoryFlow AI — Netlify Function: submit a minimax/h3 image-to-video job to
 // fal.ai async queue. Video generation takes 30-90s, which exceeds a Netlify
 // function's runtime, so this function only SUBMITS and returns the request_id.
 // The frontend polls generate-video-status for completion (FAL_KEY stays here).
@@ -38,11 +38,11 @@ export default async (request, context) => {
     // fal queue submit: raw input JSON as the body.
     const input = {
       prompt,
-      first_frame_image: first_frame_url,
+      image_url: first_frame_url,
       resolution: "768P",
       duration: 5
     };
-    if (last_frame_url) input.last_frame_image = last_frame_url;
+    if (last_frame_url) input.end_image_url = last_frame_url;
 
     let lastErr = "";
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -56,7 +56,8 @@ export default async (request, context) => {
         if (resp.ok && data?.request_id) {
           return json({
             request_id: data.request_id,
-            status_url: data.status_url || `https://queue.fal.run/${MODEL}/requests/${data.request_id}/status`,
+            status_url: data.status_url,
+            response_url: data.response_url,
             queue_position: data.queue_position ?? null
           });
         }
